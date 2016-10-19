@@ -1,4 +1,4 @@
-﻿/*
+/*
 The MIT License(MIT)
 Copyright(c) mxgmn 2016.
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
@@ -20,14 +20,14 @@ class OverlappingModel : Model
 	List<Color> colors;
 	int ground;
 
-	public OverlappingModel(string name, int N, int width, int height, bool periodicInput, bool periodicOutput, int symmetry, int ground)
+	public OverlappingModel(string inputPath, int N, int width, int height, bool periodicInput, bool periodicOutput, int symmetry, int ground)
 	{
 		this.N = N;
 		FMX = width;
 		FMY = height;
 		periodic = periodicOutput;
 
-		var bitmap = new Bitmap($"samples/{name}.png");
+		var bitmap = new Bitmap(inputPath);
 		int SMX = bitmap.Width, SMY = bitmap.Height;
 		byte[,] sample = new byte[SMX, SMY];
 		colors = new List<Color>();
@@ -48,7 +48,7 @@ class OverlappingModel : Model
 			}
 
 		int C = colors.Count;
-		long W = Stuff.Power(C, N * N);
+		int W = Stuff.Power(C, N * N);
 
 		Func<Func<int, int, byte>, byte[]> pattern = f =>
 		{
@@ -61,9 +61,9 @@ class OverlappingModel : Model
 		Func<byte[], byte[]> rotate = p => pattern((x, y) => p[N - 1 - y + x * N]);
 		Func<byte[], byte[]> reflect = p => pattern((x, y) => p[N - 1 - x + y * N]);
 
-		Func<byte[], long> index = p =>
+		Func<byte[], int> index = p =>
 		{
-			long result = 0, power = 1;
+			int result = 0, power = 1;
 			for (int i = 0; i < p.Length; i++)
 			{
 				result += p[p.Length - 1 - i] * power;
@@ -72,9 +72,9 @@ class OverlappingModel : Model
 			return result;
 		};
 
-		Func<long, byte[]> patternFromIndex = ind =>
+		Func<int, byte[]> patternFromIndex = ind =>
 		{
-			long residue = ind, power = W;
+			int residue = ind, power = W;
 			byte[] result = new byte[N * N];
 
 			for (int i = 0; i < result.Length; i++)
@@ -94,8 +94,8 @@ class OverlappingModel : Model
 			return result;
 		};
 
-		Dictionary<long, int> weights = new Dictionary<long, int>();
-		List<long> ordering = new List<long>();
+		Dictionary<int, int> weights = new Dictionary<int, int>();
+		List<int> ordering = new List<int>();
 
 		for (int y = 0; y < (periodicInput ? SMY : SMY - N + 1); y++) for (int x = 0; x < (periodicInput ? SMX : SMX - N + 1); x++)
 			{
@@ -112,7 +112,7 @@ class OverlappingModel : Model
 
 				for (int k = 0; k < symmetry; k++)
 				{
-					long ind = index(ps[k]);
+					int ind = index(ps[k]);
 					if (weights.ContainsKey(ind)) weights[ind]++;
 					else
 					{
@@ -127,10 +127,10 @@ class OverlappingModel : Model
 
 		patterns = new byte[T][];
 		stationary = new double[T];
-		propagator = new int[2 * N - 1][][][];
+		propagator = new int[T][][][];
 
 		int counter = 0;
-		foreach (long w in ordering)
+		foreach (int w in ordering)
 		{
 			patterns[counter] = patternFromIndex(w);
 			stationary[counter] = weights[w];
@@ -158,18 +158,18 @@ class OverlappingModel : Model
 			return true;
 		};
 
-		for (int x = 0; x < 2 * N - 1; x++)
+		for (int t = 0; t < T; t++)
 		{
-			propagator[x] = new int[2 * N - 1][][];
-			for (int y = 0; y < 2 * N - 1; y++)
+			propagator[t] = new int[2 * N - 1][][];
+			for (int x = 0; x < 2 * N - 1; x++)
 			{
-				propagator[x][y] = new int[T][];
-				for (int t = 0; t < T; t++)
+				propagator[t][x] = new int[2 * N - 1][];
+				for (int y = 0; y < 2 * N - 1; y++)
 				{
 					List<int> list = new List<int>();
 					for (int t2 = 0; t2 < T; t2++) if (agrees(patterns[t], patterns[t2], x - N + 1, y - N + 1)) list.Add(t2);
-					propagator[x][y][t] = new int[list.Count];
-					for (int c = 0; c < list.Count; c++) propagator[x][y][t][c] = list[c];
+					propagator[t][x][y] = new int[list.Count];
+					for (int c = 0; c < list.Count; c++) propagator[t][x][y][c] = list[c];
 				}
 			}
 		}
@@ -180,7 +180,8 @@ class OverlappingModel : Model
 	override protected bool Propagate()
 	{
 		bool change = false, b;
-		int x2, y2;
+		int x2, y2, sx, sy;
+		bool[] allowed;
 
 		for (int x1 = 0; x1 < FMX; x1++) for (int y1 = 0; y1 < FMY; y1++) if (changes[x1][y1])
 				{
@@ -188,32 +189,31 @@ class OverlappingModel : Model
 					for (int dx = -N + 1; dx < N; dx++) for (int dy = -N + 1; dy < N; dy++)
 						{
 							x2 = x1 + dx;
-							if (x2 < 0) x2 += FMX;
-							else if (x2 >= FMX) x2 -= FMX;
-
 							y2 = y1 + dy;
-							if (y2 < 0) y2 += FMY;
-							else if (y2 >= FMY) y2 -= FMY;
 
-							if (!periodic && (x2 + N > FMX || y2 + N > FMY)) continue;
+							sx = x2;
+							if (sx < 0) sx += FMX;
+							else if (sx >= FMX) sx -= FMX;
 
-							bool[] w1 = wave[x1][y1];
-							bool[] w2 = wave[x2][y2];
-							int[][] p = propagator[N - 1 - dx][N - 1 - dy];
+							sy = y2;
+							if (sy < 0) sy += FMY;
+							else if (sy >= FMY) sy -= FMY;
+
+							if (!periodic && (sx + N > FMX || sy + N > FMY)) continue;
+							allowed = wave[sx][sy];
 
 							for (int t2 = 0; t2 < T; t2++)
 							{
-								if (!w2[t2]) continue;
-
+								if (!allowed[t2]) continue;
 								b = false;
-								int[] prop = p[t2];
-								for (int i1 = 0; i1 < prop.Length && !b; i1++) b = w1[prop[i1]];
+								int[] prop = propagator[t2][N - 1 - dx][N - 1 - dy];
+								for (int i1 = 0; i1 < prop.Length && !b; i1++) b = wave[x1][y1][prop[i1]];
 
 								if (!b)
 								{
-									changes[x2][y2] = true;
+									changes[sx][sy] = true;
 									change = true;
-									w2[t2] = false;
+									allowed[t2] = false;
 								}
 							}
 						}
