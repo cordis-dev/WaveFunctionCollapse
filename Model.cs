@@ -73,6 +73,57 @@ abstract class Model
 
 		return null;
 	}
+	
+	bool? Observe()
+	{
+		double min = 1E+3, sum, mainSum, logSum, noise, entropy;
+		int argminx = -1, argminy = -1, amount;
+
+		for (int x = 0; x < FMX; x++) for (int y = 0; y < FMY; y++)
+			{
+				if (OnBoundary(x, y)) continue;
+
+				amount = 0;
+				sum = 0;
+
+				for (int t = 0; t < T; t++) if (wave[x][y][t])
+					{
+						amount += 1;
+						sum += stationary[t];
+					}
+
+				if (sum == 0) return false;
+
+				noise = 1E-6 * random.NextDouble();
+
+				if (amount == 1) entropy = 0;
+				else if (amount == T) entropy = logT;
+				else
+				{
+					mainSum = 0;
+					logSum = Math.Log(sum);
+					for (int t = 0; t < T; t++) if (wave[x][y][t]) mainSum += stationary[t] * logProb[t];
+					entropy = logSum - mainSum / sum;
+				}
+
+				if (entropy > 0 && entropy + noise < min)
+				{
+					min = entropy + noise;
+					argminx = x;
+					argminy = y;
+				}
+			}
+
+		if (argminx == -1 && argminy == -1) return true;
+
+		double[] distribution = new double[T];
+		for (int t = 0; t < T; t++) distribution[t] = wave[argminx][argminy][t] ? stationary[t] : 0;
+		int r = distribution.Random(random.NextDouble());
+		for (int t = 0; t < T; t++) wave[argminx][argminy][t] = t == r;
+		changes[argminx][argminy] = true;
+
+		return null;
+	}	
 
 	public bool Run(int seed, int limit)
 	{
